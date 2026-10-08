@@ -1,0 +1,26 @@
+# THROWAWAY probe for senpi#2353; lives only on diag/2353-probe, never merged.
+name: diag-2353 stale-ppid probe
+on:
+  push:
+    branches: ["diag/2353-probe"]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Processes whose ParentProcessId names a dead or younger process
+        shell: pwsh
+        run: |
+          $all = Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, CreationDate
+          $byId = @{}; foreach ($p in $all) { $byId[[int]$p.ProcessId] = $p }
+          "total processes: $($all.Count)"
+          "--- runner ancestry ---"
+          $cur = $byId[[int]$PID]
+          while ($cur) { "{0,6} ppid {1,6} {2} {3:o}" -f $cur.ProcessId, $cur.ParentProcessId, $cur.Name, $cur.CreationDate; $cur = $byId[[int]$cur.ParentProcessId] }
+          "--- stale parent (parent pid not running) ---"
+          $stale = $all | Where-Object { $_.ParentProcessId -ne 0 -and -not $byId.ContainsKey([int]$_.ParentProcessId) }
+          $stale | ForEach-Object { "{0,6} ppid {1,6} {2}" -f $_.ProcessId, $_.ParentProcessId, $_.Name }
+          "--- parent pid running but YOUNGER than child (already recycled) ---"
+          $all | Where-Object { $byId.ContainsKey([int]$_.ParentProcessId) -and $byId[[int]$_.ParentProcessId].CreationDate -gt $_.CreationDate } | ForEach-Object { "{0,6} ppid {1,6} {2} (parent {3})" -f $_.ProcessId, $_.ParentProcessId, $_.Name, $byId[[int]$_.ParentProcessId].Name }
