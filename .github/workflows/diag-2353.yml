@@ -1,11 +1,11 @@
 # THROWAWAY diagnostic for senpi#2353 (runner wedge in the Windows WebView job). Lives only on
 # diag/2353-* branches; never merged. Each job posts a heartbeat commit status every 30 s so a runner
 # that stops answering (no log, no step timeout) still leaves its last known state behind.
-name: diag-2353 WebView burst
+name: diag-2353 control burst
 
 on:
   push:
-    branches: ["diag/2353-**"]
+    branches: ["diag/2353-runner-wedge"]
 
 permissions:
   contents: read
@@ -16,10 +16,10 @@ jobs:
     name: wv ${{ matrix.arm }} #${{ matrix.idx }}
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 6
       matrix:
-        arm: [w2, w1]
-        idx: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        arm: [w2]
+        idx: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40]
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
