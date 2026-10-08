@@ -21,15 +21,39 @@ function positivePids(texts: readonly string[]): number[] {
 
 // Bun's Chrome browsers (direct children with Bun's flags) and every process under them, in one
 // CIM listing; the listing's own PowerShell is excluded because its command line names the flag.
-const WINDOWS_CHROME_TREE = `$all = Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, CommandLine
+const WINDOWS_CHROME_TREE = `$all = Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, CommandLine, Name
 $tree = [System.Collections.Generic.HashSet[int]]::new()
 foreach ($p in $all) { if ($p.ParentProcessId -eq ${process.pid} -and $p.ProcessId -ne $PID -and $p.CommandLine -like '*--remote-debugging-pipe*') { [void]$tree.Add([int]$p.ProcessId) } }
 do { $grew = $false; foreach ($p in $all) { if ($tree.Contains([int]$p.ParentProcessId) -and $tree.Add([int]$p.ProcessId)) { $grew = $true } } } while ($grew)
-$tree`;
+$all | Where-Object { $tree.Contains([int]$_.ProcessId) } | ForEach-Object { "$($_.ProcessId) $($_.Name)" }`;
 
+// THROWAWAY diagnostic (senpi#2353, branch diag/2353-killlist, never merged): before the kill, post any
+// non-browser process the walk adopted as an out-of-band commit status, so a wedged runner still says why.
 async function windowsBunChromeTree(): Promise<number[]> {
 	const stdout = await run("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_CHROME_TREE]);
-	return positivePids(stdout.split(/\r?\n/u).map((line) => line.trim()));
+	const rows = stdout
+		.split(/\r?\n/u)
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0);
+	const foreign = rows.filter((line) => !/ (chrome|msedge)\.exe$/iu.test(line));
+	const url = process.env.DIAG_STATUS_URL;
+	const token = process.env.DIAG_STATUS_TOKEN;
+	if (foreign.length > 0 && url && token) {
+		const description = `KILLLIST n${rows.length} ${foreign.map((line) => line.split(" ")[1]).join(",")}`.slice(
+			0,
+			139,
+		);
+		await fetch(url, {
+			method: "POST",
+			headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" },
+			body: JSON.stringify({
+				state: "error",
+				context: `${process.env.DIAG_CTX ?? "diag-2353"}/killlist-${process.pid}`,
+				description,
+			}),
+		}).catch(() => undefined);
+	}
+	return positivePids(rows.map((line) => line.split(" ")[0] ?? ""));
 }
 
 async function windowsListedPids(): Promise<Set<number>> {
