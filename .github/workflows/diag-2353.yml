@@ -19,7 +19,7 @@ jobs:
       max-parallel: 8
       matrix:
         arm: [w2, w1]
-        idx: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        idx: [1]
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
@@ -50,6 +50,7 @@ jobs:
           STATUS_URL: ${{ github.api_url }}/repos/${{ github.repository }}/statuses/${{ github.sha }}
           WORKERS: ${{ matrix.arm == 'w1' && '--maxWorkers=1' || '' }}
         run: |
+          set +e  # the default shell is bash -e: a failing suite or grep -c with no match must not end the step early
           out="$RUNNER_TEMP/vitest-webview.txt"; : > "$out"
           post() { # state description ; description is metrics only (no secrets), max 140 chars
             curl -s -o /dev/null -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$STATUS_URL" \
@@ -59,7 +60,7 @@ jobs:
             powershell -NoProfile -Command '$o=Get-CimInstance Win32_OperatingSystem; $c=(Get-CimInstance Win32_Processor | Measure-Object LoadPercentage -Average).Average; $p=Get-Process chrome,msedgewebview2,bun,node -EA SilentlyContinue | Group-Object Name | ForEach-Object { "{0}{1}/{2:N1}" -f $_.Name.Substring(0,3),$_.Count,(($_.Group|Measure-Object WorkingSet64 -Sum).Sum/1GB) }; "f{0:N1} c{1:N1} u{2} {3}" -f ($o.FreePhysicalMemory/1MB),($o.FreeVirtualMemory/1MB),$c,($p -join " ")' 2>/dev/null | tr -d '\r"\\'
           }
           ( while :; do
-              n=$(grep -c '✓' "$out" 2>/dev/null); x=$(grep -c '×' "$out" 2>/dev/null); r=$(wc -l < "$SENPI_WEBVIEW_READINESS_LOG" 2>/dev/null || echo 0)
+              n=$(grep -c '✓' "$out" 2>/dev/null || true); x=$(grep -c '×' "$out" 2>/dev/null || true); r=$(wc -l < "$SENPI_WEBVIEW_READINESS_LOG" 2>/dev/null || echo 0)
               post pending "t$SECONDS ok$n x$x rl$r $(probe)"
               sleep 30
             done ) &
@@ -68,9 +69,9 @@ jobs:
           bunx --bun vitest run test/js-kernel-webview.test.ts test/js-kernel-webview-lifecycle.test.ts test/js-kernel-webview-resilience.test.ts test/js-kernel-webview-launch.test.ts test/js-kernel-webview-readiness.test.ts $WORKERS --reporter=verbose --reporter=hanging-process --reporter=json --outputFile=vitest-webview.json > "$out" 2>&1
           status=$?
           kill "$hb" 2>/dev/null || true
-          n=$(grep -c '✓' "$out"); x=$(grep -c '×' "$out")
+          n=$(grep -c '✓' "$out" || true); x=$(grep -c '×' "$out" || true)
           if [ "$status" = 0 ]; then post success "end t$SECONDS ok$n x$x"; else post failure "end rc$status t$SECONDS ok$n x$x"; fi
-          cat "$out" | tail -60
+          tail -80 "$out"
           exit "$status"
         working-directory: packages/senpi-codemode
 
